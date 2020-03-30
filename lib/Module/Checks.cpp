@@ -131,8 +131,8 @@ bool OvershiftCheckPass::runOnModule(Module &M) {
   auto &ctx = M.getContext();
   KleeIRMetaData md(ctx);
   auto overshiftCheckFunction = M.getOrInsertFunction(
-      "klee_overshift_check", Type::getVoidTy(ctx), Type::getInt64Ty(ctx),
-      Type::getInt64Ty(ctx) KLEE_LLVM_GOIF_TERMINATOR);
+      "klee_overshift_check", Type::getInt8PtrTy(ctx), Type::getInt8PtrTy(ctx),
+      Type::getInt8PtrTy(ctx), Type::getInt32Ty(ctx) KLEE_LLVM_GOIF_TERMINATOR);
 
   for (auto &shiftInst : shiftInstructions) {
     llvm::IRBuilder<> Builder(shiftInst);

@@ -150,6 +150,23 @@ private:
                      llvm::BasicBlock *defaultBlock);
 };
 
+/// LowerByValPass - Replaces byval calls with code that allocates a copy of
+/// the argument on the stack and then does a regular call
+class LowerByValPass : public llvm::ModulePass {
+public:
+  static char ID; // Pass identification, replacement for typeid
+  const llvm::DataLayout &DataLayout;
+
+  LowerByValPass(const llvm::DataLayout &TD)
+      : ModulePass(ID), DataLayout(TD) {}
+
+  bool runOnModule(llvm::Module &m) override;
+
+private:
+  void copyArgument(llvm::Instruction &i, unsigned argNo);
+  bool runOnBasicBlock(llvm::BasicBlock &bb, llvm::Module &m);
+};
+
 /// InstructionOperandTypeCheckPass - Type checks the types of instruction
 /// operands to check that they conform to invariants expected by the Executor.
 ///
