@@ -163,7 +163,6 @@ public:
   bool runOnModule(llvm::Module &m) override;
 
 private:
-  void copyArgument(llvm::Instruction &i, unsigned argNo);
   bool runOnBasicBlock(llvm::BasicBlock &bb, llvm::Module &m);
 };
 
