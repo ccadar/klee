@@ -138,6 +138,10 @@ static int has_permission(int flags, struct stat64 *s) {
 }
 
 
+int klee_open(const char *pathname, int flags, mode_t mode) {
+  return 0;
+}
+
 int __fd_open(const char *pathname, int flags, mode_t mode) {
   exe_disk_file_t *df;
   exe_file_t *f;
@@ -341,7 +345,14 @@ int close(int fd) {
   return r;
 }
 
+ssize_t klee_read(int fd, void *buf, size_t count) {
+  printf("\n\n  CALLING klee_read\n\n");
+  return read(fd, buf, count);
+  //return 0;
+};
+
 ssize_t read(int fd, void *buf, size_t count) {
+  printf("In read() Here\n");
   static int n_calls = 0;
   exe_file_t *f;
 

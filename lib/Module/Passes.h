@@ -185,6 +185,23 @@ private:
 
 };
 
+/// PosixInterceptorPass - when the POSIX runtime is used, redirects
+/// system cals to our runtime.  E.g. chmod() is redirected to klee_chmod()
+class PosixInterceptorPass : public llvm::ModulePass {
+
+public:
+  static char ID;
+  PosixInterceptorPass() : llvm::ModulePass(ID) {}
+  bool runOnModule(llvm::Module &M) override;
+
+private:
+  static const llvm::FunctionType *getFunctionType(const llvm::GlobalValue *gv);
+  static bool checkType(const llvm::GlobalValue *match, const llvm::GlobalValue *replacement);
+  static bool tryToReplace(llvm::GlobalValue *match, llvm::GlobalValue *replacement);
+  static bool isFunctionOrGlobalFunctionAlias(const llvm::GlobalValue *gv);
+
+};
+
 #ifdef USE_WORKAROUND_LLVM_PR39177
 /// WorkaroundLLVMPR39177Pass - Workaround for LLVM PR39177 within KLEE repo.
 /// For more information on this, please refer to the comments in

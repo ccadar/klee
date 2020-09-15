@@ -19,6 +19,7 @@ set(KLEE_MODULE_COMPONENT_SRCS
   Optimize.cpp
   OptNone.cpp
   PhiCleaner.cpp
+  PosixInterceptor.cpp
   RaiseAsm.cpp
 )
 

@@ -257,6 +257,7 @@ void KModule::instrument(const Interpreter::ModuleOptions &opts) {
 void KModule::optimiseAndPrepare(
     const Interpreter::ModuleOptions &opts,
     llvm::ArrayRef<const char *> preservedFunctions) {
+ 
   // Preserve all functions containing klee-related function calls from being
   // optimised around
   if (!OptimiseKLEECall) {
@@ -264,6 +265,10 @@ void KModule::optimiseAndPrepare(
     pm.add(new OptNonePass());
     pm.run(*module);
   }
+
+  legacy::PassManager pm;
+  pm.add(new PosixInterceptorPass());
+  pm.run(*module);
 
   if (opts.Optimize)
     Optimize(module.get(), preservedFunctions);
