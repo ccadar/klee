@@ -1244,7 +1244,8 @@ int main(int argc, char **argv, char **envp) {
   Interpreter::ModuleOptions Opts(LibraryDir.c_str(), EntryPoint,
                                   /*Optimize=*/OptimizeModule,
                                   /*CheckDivZero=*/CheckDivZero,
-                                  /*CheckOvershift=*/CheckOvershift);
+                                  /*CheckOvershift=*/CheckOvershift,
+                                  WithPOSIXRuntime);
 
   if (WithPOSIXRuntime) {
     SmallString<128> Path(Opts.LibraryDir);

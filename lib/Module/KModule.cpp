@@ -266,9 +266,11 @@ void KModule::optimiseAndPrepare(
     pm.run(*module);
   }
 
-  legacy::PassManager pm;
-  pm.add(new PosixInterceptorPass());
-  pm.run(*module);
+  if (opts.PosixRuntime) {
+    legacy::PassManager pm;
+    pm.add(new PosixInterceptorPass());
+    pm.run(*module);
+  }
 
   if (opts.Optimize)
     Optimize(module.get(), preservedFunctions);
