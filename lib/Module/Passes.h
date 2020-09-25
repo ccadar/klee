@@ -195,7 +195,8 @@ public:
   bool runOnModule(llvm::Module &M) override;
 
 private:
-  static const llvm::FunctionType *getFunctionType(const llvm::GlobalValue *gv);
+  static llvm::FunctionType *getFunctionType(const llvm::GlobalValue *gv);
+  static llvm::Function *getCalledFunction(llvm::CallBase *cb);
   static bool checkType(const llvm::GlobalValue *match, const llvm::GlobalValue *replacement);
   static bool tryToReplace(llvm::GlobalValue *match, llvm::GlobalValue *replacement);
   static bool isFunctionOrGlobalFunctionAlias(const llvm::GlobalValue *gv);

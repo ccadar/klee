@@ -65,7 +65,7 @@ namespace klee {
         for (auto &bb : f) {
           for (auto &i: bb) {
             if (auto *cb = dyn_cast<CallBase>(&i)) {
-              Function* fun = cb->getCalledFunction();
+              Function* fun = getCalledFunction(cb);
               if (fun && posixFuns.count(fun->getName())) {
                 llvm::errs() << "Processing CallBase: " << i << "\n";
                 klee_message("Will replace %s\n", fun->getName().data());
@@ -77,19 +77,22 @@ namespace klee {
     }
     
     for (auto *cb : callsToReplace) {
-      Function* fun = cb->getCalledFunction();
-      GlobalValue *replacement = replacementFuns[cb->getCalledFunction()->getName()];
+      Function* fun = getCalledFunction(cb);
+      GlobalValue *replacement = replacementFuns[fun->getName()];
       assert(replacement);
 
-      std::string replacementName = "klee_" + replacement->getName().str();
       auto replacementFun =
-        M.getOrInsertFunction(replacementName, fun->getFunctionType());
+        M.getOrInsertFunction(replacement->getName(), getFunctionType(replacement));
       llvm::errs() << "Function type: " << *replacementFun.getFunctionType() << "\n";
       
       SmallVector<Value *, 8> Args(cb->arg_begin(), cb->arg_end());
       llvm::errs() << "#args = " << Args.size() << "\n";
-      CallInst *NewCI = CallInst::Create(replacementFun, Args);
-      //NewCI->setCallingConv(replacementFunction.getCallingConv());
+
+      if (!checkType(fun, replacement))
+        klee_error("%s() is called with the incorrect type.  Most likely you need to include the correct header files.\n", fun->getName().data());
+     
+      CallInst* NewCI = CallInst::Create(replacementFun, Args);
+      
       if (!cb->use_empty())
         cb->replaceAllUsesWith(NewCI);
       ReplaceInstWithInst(cb, NewCI);
@@ -102,9 +105,9 @@ namespace klee {
     return modified;
   }
 
-  const FunctionType *PosixInterceptorPass::getFunctionType(
+  FunctionType* PosixInterceptorPass::getFunctionType(
       const GlobalValue *gv) {
-    const Type *type = gv->getType();
+    Type *type = gv->getType();
     while (type->isPointerTy()) {
       const PointerType *ptr = cast<PointerType>(type);
       type = ptr->getElementType();
@@ -112,6 +115,13 @@ namespace klee {
     return cast<FunctionType>(type);
   }
 
+  Function* PosixInterceptorPass::getCalledFunction(CallBase *cb) {
+    Value *Callee = cb->getCalledValue()->stripPointerCasts();
+    if (auto f = dyn_cast<Function>(Callee))
+      return f;
+    return nullptr;
+  }
+  
   bool PosixInterceptorPass::checkType(const GlobalValue *match,
                                        const GlobalValue *replacement) {
     llvm::errs() << "In checkType\n";
