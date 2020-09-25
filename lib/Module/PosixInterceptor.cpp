@@ -36,21 +36,17 @@ namespace klee {
   bool PosixInterceptorPass::runOnModule(Module & M) {
     bool modified = false;
 
-#if LLVM_VERSION_CODE >= LLVM_VERSION(3, 9)
-    assert((M.ifunc_size() == 0) && "Unexpected ifunc");
-#endif
+#define NELEMS(array) (sizeof(array) / sizeof(array[0]))
 
-#define NELEMS(array) (sizeof(array)/sizeof(array[0]))
+    // POSIX functions/system calls to be replaced with klee_* functions
     std::set<std::string> posixFuns(posixFunctions,
                                     posixFunctions + NELEMS(posixFunctions));
 
-    std::set<std::string> replacementNames;
-    std::map<std::string, GlobalValue*> replacementValues;
+    // maps function to be replaced to their klee_* replacement functions, e.g., read -> klee_read
+    std::map<std::string, GlobalValue*> replacementFuns;
 
     for (const auto &fun : posixFuns) {
-            
       std::string replacementName = "klee_" + fun;
-      replacementNames.insert(replacementName);
 
       // double-check that the replacement function exists
       GlobalValue *replacementValue = M.getNamedValue(replacementName);
@@ -59,22 +55,20 @@ namespace klee {
             "POSIX interceptor: replacement function @%s could not be found",
             replacementName.c_str());
 
-      //llvm::errs() << "";
-      replacementValues[fun] = replacementValue;
+      replacementFuns[fun] = replacementValue;
     }
 
-    klee_message("Here\n");
     std::vector<llvm::CallBase*> callsToReplace;
 
     for (auto &f : M.getFunctionList()) {
-      for (auto &bb : f) {
-        if (!f.getName().startswith("klee_"))
+      if (!f.getName().startswith("klee_"))
+        for (auto &bb : f) {
           for (auto &i: bb) {
             if (auto *cb = dyn_cast<CallBase>(&i)) {
-              Function* match = cb->getCalledFunction();
-              if (match && posixFuns.count(match->getName())) {
+              Function* fun = cb->getCalledFunction();
+              if (fun && posixFuns.count(fun->getName())) {
                 llvm::errs() << "Processing CallBase: " << i << "\n";
-                klee_message("Trying to replace %s\n", match->getName().data());
+                klee_message("Will replace %s\n", fun->getName().data());
                 callsToReplace.push_back(cb);
               }
             }
@@ -83,40 +77,26 @@ namespace klee {
     }
     
     for (auto *cb : callsToReplace) {
-      Function* match = cb->getCalledFunction();
-      GlobalValue *replacementValue = replacementValues[cb->getCalledFunction()->getName()];
-      assert(replacementValue);
+      Function* fun = cb->getCalledFunction();
+      GlobalValue *replacement = replacementFuns[cb->getCalledFunction()->getName()];
+      assert(replacement);
 
-      std::string replacementName = "klee_" + match->getName().str();
-      auto replacementFunction =
-        M.getOrInsertFunction(replacementName, match->getFunctionType());
-      llvm::errs() << "Function type: " << *replacementFunction.getFunctionType() << "\n";
+      std::string replacementName = "klee_" + replacement->getName().str();
+      auto replacementFun =
+        M.getOrInsertFunction(replacementName, fun->getFunctionType());
+      llvm::errs() << "Function type: " << *replacementFun.getFunctionType() << "\n";
       
-      //CallSite CS(Call);
       SmallVector<Value *, 8> Args(cb->arg_begin(), cb->arg_end());
-      llvm::errs() << "args = " << Args.size() << "\n";
-      CallInst *NewCI = CallInst::Create(replacementFunction, Args);
+      llvm::errs() << "#args = " << Args.size() << "\n";
+      CallInst *NewCI = CallInst::Create(replacementFun, Args);
       //NewCI->setCallingConv(replacementFunction.getCallingConv());
       if (!cb->use_empty())
         cb->replaceAllUsesWith(NewCI);
       ReplaceInstWithInst(cb, NewCI);
       
-#if 0
-      std::vector<llvm::Value*> args;
-      for (auto a = match->arg_begin(); a != match->arg_end(); a++)
-        args.push_back(a);
-      
-      llvm::IRBuilder<> Builder(&i);
-      Builder.CreateCall(replacementFunction, args);
-      //llvm::ReplaceInstWithInst(i, 
-      
-      //if (tryToReplace(match, replacementValue)) {
-#endif
       modified = true;
       klee_message("POSIX interceptor: replaced @%s with @%s",
-                   match->getName().data(), replacementValue->getName().data());
-      //continue;
-      //}
+                   fun->getName().data(), replacement->getName().data());
     }
     
     return modified;
