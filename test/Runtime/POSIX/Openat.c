@@ -5,6 +5,7 @@
 
 #include <assert.h>
 #include <fcntl.h>
+#include <unistd.h>
 
 int main(int argc, char **argv) {
   int fd = openat(AT_FDCWD, "A", O_RDWR|O_TRUNC);
