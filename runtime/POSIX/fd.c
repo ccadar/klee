@@ -346,13 +346,6 @@ int close(int fd) {
 }
 
 ssize_t klee_read(int fd, void *buf, size_t count) {
-  printf("\n\n  CALLING klee_read\n\n");
-  return read(fd, buf, count);
-  //return 0;
-};
-
-ssize_t read(int fd, void *buf, size_t count) {
-  printf("In read() Here\n");
   static int n_calls = 0;
   exe_file_t *f;
 
