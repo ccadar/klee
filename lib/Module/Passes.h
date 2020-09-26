@@ -23,7 +23,11 @@
 #include "llvm/Pass.h"
 
 namespace llvm {
+#if LLVM_VERSION_CODE >= LLVM_VERSION(8, 0)
 class CallBase;
+#else
+class CallSite;
+#endif
 class Function;
 class Instruction;
 class Module;
