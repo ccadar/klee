@@ -13,11 +13,16 @@
 #include "klee/Support/ErrorHandling.h"
 #include "klee/Support/OptionCategories.h"
 
+#if LLVM_VERSION_CODE < LLVM_VERSION(8, 0)
+#include "llvm/IR/CallSite.h"
+#endif
 #include "llvm/IR/GlobalAlias.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Regex.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
+
+#include "llvm/Support/raw_ostream.h"
 
 #include <map>
 #include <set>
@@ -58,34 +63,52 @@ namespace klee {
       replacementFuns[fun] = replacementValue;
     }
 
-    std::vector<llvm::CallBase*> callsToReplace;
+    std::vector<llvm::Instruction*> callsToReplace;
 
     for (auto &f : M.getFunctionList()) {
       if (!f.getName().startswith("klee_"))
         for (auto &bb : f) {
-          for (auto &i: bb) {
-            if (auto *cb = dyn_cast<CallBase>(&i)) {
-              Function* fun = getCalledFunction(cb);
+          for (auto &i : bb) {
+#if LLVM_VERSION_CODE >= LLVM_VERSION(8, 0)
+            if (auto cb = dyn_cast<CallBase>(&i)) {
+              Function *fun = getCalledFunction(cb);
+#else
+            CallSite cs(&i);
+            if (cs) {
+              Function *fun = getCalledFunction(&cs);
+#endif
               if (fun && posixFuns.count(fun->getName())) {
                 llvm::errs() << "Processing CallBase: " << i << "\n";
                 klee_message("Will replace %s\n", fun->getName().data());
-                callsToReplace.push_back(cb);
+                callsToReplace.push_back(&i);
               }
             }
           }
-      }
+        }
     }
-    
-    for (auto *cb : callsToReplace) {
+
+    for (auto *i : callsToReplace) {
+#if LLVM_VERSION_CODE >= LLVM_VERSION(8, 0)
+      CallBase *cb = dyn_cast<CallBase>(i);
+      assert(cb);
       Function* fun = getCalledFunction(cb);
+#else
+      CallSite cb(i);
+      assert(cb);
+      Function* fun = getCalledFunction(&cb);
+#endif
       GlobalValue *replacement = replacementFuns[fun->getName()];
       assert(replacement);
 
       auto replacementFun =
         M.getOrInsertFunction(replacement->getName(), getFunctionType(replacement));
-      llvm::errs() << "Function type: " << *replacementFun.getFunctionType() << "\n";
-      
+      //llvm::errs() << "Function type: " << *replacementFun.getFunctionType() << "\n";
+
+#if LLVM_VERSION_CODE >= LLVM_VERSION(8, 0)
       SmallVector<Value *, 8> Args(cb->arg_begin(), cb->arg_end());
+#else
+      SmallVector<Value *, 8> Args(cb.arg_begin(), cb.arg_end());
+#endif
       llvm::errs() << "#args = " << Args.size() << "\n";
 
       if (!checkType(fun, replacement))
@@ -95,7 +118,7 @@ namespace klee {
       
       if (!cb->use_empty())
         cb->replaceAllUsesWith(NewCI);
-      ReplaceInstWithInst(cb, NewCI);
+      ReplaceInstWithInst(i, NewCI);
       
       modified = true;
       klee_message("POSIX interceptor: replaced @%s with @%s",
@@ -115,13 +138,17 @@ namespace klee {
     return cast<FunctionType>(type);
   }
 
-  Function* PosixInterceptorPass::getCalledFunction(CallBase *cb) {
+#if LLVM_VERSION_CODE >= LLVM_VERSION(8, 0)
+  Function *PosixInterceptorPass::getCalledFunction(CallBase *cb) {
+#else
+  Function *PosixInterceptorPass::getCalledFunction(CallSite *cb) {
+#endif
     Value *Callee = cb->getCalledValue()->stripPointerCasts();
     if (auto f = dyn_cast<Function>(Callee))
       return f;
     return nullptr;
   }
-  
+
   bool PosixInterceptorPass::checkType(const GlobalValue *match,
                                        const GlobalValue *replacement) {
     llvm::errs() << "In checkType\n";

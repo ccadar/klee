@@ -14,12 +14,16 @@
 
 #include "llvm/ADT/Triple.h"
 #include "llvm/CodeGen/IntrinsicLowering.h"
+#if LLVM_VERSION_CODE < LLVM_VERSION(8, 0)
+#include "llvm/IR/CallSite.h"
+#endif
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Pass.h"
 
 namespace llvm {
+class CallBase;
 class Function;
 class Instruction;
 class Module;
@@ -196,7 +200,12 @@ public:
 
 private:
   static llvm::FunctionType *getFunctionType(const llvm::GlobalValue *gv);
+#if LLVM_VERSION_CODE >= LLVM_VERSION(8, 0)
   static llvm::Function *getCalledFunction(llvm::CallBase *cb);
+#else
+  static llvm::Function *getCalledFunction(llvm::CallSite *cs);
+#endif
+
   static bool checkType(const llvm::GlobalValue *match, const llvm::GlobalValue *replacement);
   static bool tryToReplace(llvm::GlobalValue *match, llvm::GlobalValue *replacement);
   static bool isFunctionOrGlobalFunctionAlias(const llvm::GlobalValue *gv);
