@@ -447,17 +447,20 @@ ExprHandle STPBuilder::constructSDivByConstant(ExprHandle expr_n, unsigned width
       // using assertions, which is much faster, but we need to fix the caching
       // to work correctly in that case.
       for (unsigned i = 0, e = root->size; i != e; ++i) {
-	::VCExpr prev = array_expr;
-	array_expr = vc_writeExpr(vc, prev,
-                       construct(ConstantExpr::alloc(i, root->getDomain()), 0),
-                       construct(root->constantValues[i], 0));
-	vc_DeleteExpr(prev);
+        ::VCExpr prev = array_expr;
+        array_expr =
+            vc_writeExpr(vc, prev,
+                         construct(ConstantExpr::alloc(i, root->getDomain()), 0,
+                                   STPBuilder::ExprType::Bitvector),
+                         construct(root->constantValues[i], 0,
+                                   STPBuilder::ExprType::Bitvector));
+        vc_DeleteExpr(prev);
       }
     }
-    
+
     _arr_hash.hashArrayExpr(root, array_expr);
   }
-  
+
   return array_expr;
 }
 
@@ -474,45 +477,48 @@ ExprHandle STPBuilder::getInitialRead(const Array *root, unsigned index) {
       // FIXME: This really needs to be non-recursive.
       ::VCExpr un_expr;
       bool hashed = _arr_hash.lookupUpdateNodeExpr(un, un_expr);
-      
+
       if (!hashed) {
-        un_expr =
-            vc_writeExpr(vc, getArrayForUpdate(root, un->next.get()),
-                         construct(un->index, 0), construct(un->value, 0));
+        un_expr = vc_writeExpr(
+            vc, getArrayForUpdate(root, un->next.get()),
+            construct(un->index, nullptr, STPBuilder::ExprType::Bitvector),
+            construct(un->value, nullptr, STPBuilder::ExprType::Bitvector));
 
         _arr_hash.hashUpdateNodeExpr(un, un_expr);
       }
-      
+
       return un_expr;
   }
 }
 
 /** if *width_out!=1 then result is a bitvector,
     otherwise it is a bool */
-ExprHandle STPBuilder::construct(ref<Expr> e, int *width_out) {
+ExprHandle STPBuilder::construct(ref<Expr> e, int *width_out,
+                                 STPBuilder::ExprType expr_type) {
   if (!UseConstructHash || isa<ConstantExpr>(e)) {
-    return constructActual(e, width_out);
+    return constructActual(e, width_out, expr_type);
   } else {
-    ExprHashMap< std::pair<ExprHandle, unsigned> >::iterator it = 
-      constructed.find(e);
-    if (it!=constructed.end()) {
+    ExprHashMap<std::pair<ExprHandle, unsigned>>::iterator it =
+        constructed.find(e);
+    if (it != constructed.end()) {
       if (width_out)
         *width_out = it->second.second;
       return it->second.first;
     } else {
       int width;
-      if (!width_out) width_out = &width;
-      ExprHandle res = constructActual(e, width_out);
+      if (!width_out)
+        width_out = &width;
+      ExprHandle res = constructActual(e, width_out, expr_type);
       constructed.insert(std::make_pair(e, std::make_pair(res, *width_out)));
       return res;
     }
   }
 }
 
-
 /** if *width_out!=1 then result is a bitvector,
     otherwise it is a bool */
-ExprHandle STPBuilder::constructActual(ref<Expr> e, int *width_out) {
+ExprHandle STPBuilder::constructActual(ref<Expr> e, int *width_out,
+                                       STPBuilder::ExprType expr_type) {
   int width;
   if (!width_out) width_out = &width;
 
@@ -524,8 +530,10 @@ ExprHandle STPBuilder::constructActual(ref<Expr> e, int *width_out) {
     *width_out = CE->getWidth();
 
     // Coerce to bool if necessary.
-    if (*width_out == 1)
+    if (expr_type == STPBuilder::ExprType::Boolean) {
+      assert(*width_out == 1);
       return CE->isTrue() ? getTrue() : getFalse();
+    }
 
     // Fast path.
     if (*width_out <= 32)
@@ -548,32 +556,38 @@ ExprHandle STPBuilder::constructActual(ref<Expr> e, int *width_out) {
   // Special
   case Expr::NotOptimized: {
     NotOptimizedExpr *noe = cast<NotOptimizedExpr>(e);
-    return construct(noe->src, width_out);
+    return construct(noe->src, width_out, expr_type);
   }
 
   case Expr::Read: {
+    assert(expr_type != STPBuilder::ExprType::Boolean);
     ReadExpr *re = cast<ReadExpr>(e);
     assert(re && re->updates.root);
     *width_out = re->updates.root->getRange();
     return vc_readExpr(
         vc, getArrayForUpdate(re->updates.root, re->updates.head.get()),
-        construct(re->index, 0));
+        construct(re->index, nullptr, STPBuilder::ExprType::Bitvector));
   }
     
   case Expr::Select: {
     SelectExpr *se = cast<SelectExpr>(e);
-    ExprHandle cond = construct(se->cond, 0);
-    ExprHandle tExpr = construct(se->trueExpr, width_out);
-    ExprHandle fExpr = construct(se->falseExpr, width_out);
+    ExprHandle cond = construct(se->cond, nullptr, STPBuilder::ExprType::Boolean);
+    ExprHandle tExpr = construct(se->trueExpr, width_out, expr_type);
+    ExprHandle fExpr = construct(se->falseExpr, width_out, expr_type);
     return vc_iteExpr(vc, cond, tExpr, fExpr);
   }
 
   case Expr::Concat: {
+    assert(expr_type != STPBuilder::ExprType::Boolean);
     ConcatExpr *ce = cast<ConcatExpr>(e);
     unsigned numKids = ce->getNumKids();
-    ExprHandle res = construct(ce->getKid(numKids-1), 0);
-    for (int i=numKids-2; i>=0; i--) {
-      res = vc_bvConcatExpr(vc, construct(ce->getKid(i), 0), res);
+    ExprHandle res = construct(ce->getKid(numKids - 1), nullptr,
+                               STPBuilder::ExprType::Bitvector);
+    for (int i = numKids - 2; i >= 0; i--) {
+      res = vc_bvConcatExpr(
+          vc,
+          construct(ce->getKid(i), nullptr, STPBuilder::ExprType::Bitvector),
+          res);
     }
     *width_out = ce->getWidth();
     return res;
@@ -581,9 +595,11 @@ ExprHandle STPBuilder::constructActual(ref<Expr> e, int *width_out) {
 
   case Expr::Extract: {
     ExtractExpr *ee = cast<ExtractExpr>(e);
-    ExprHandle src = construct(ee->expr, width_out);    
+    ExprHandle src =
+        construct(ee->expr, width_out, STPBuilder::ExprType::Bitvector);
     *width_out = ee->getWidth();
-    if (*width_out==1) {
+    if (expr_type == STPBuilder::ExprType::Boolean) {
+      assert(*width_out == 1);
       return bvBoolExtract(src, ee->offset);
     } else {
       return vc_bvExtract(vc, src, ee->offset + *width_out - 1, ee->offset);
@@ -595,21 +611,25 @@ ExprHandle STPBuilder::constructActual(ref<Expr> e, int *width_out) {
   case Expr::ZExt: {
     int srcWidth;
     CastExpr *ce = cast<CastExpr>(e);
-    ExprHandle src = construct(ce->src, &srcWidth);
+    ExprHandle src =
+        construct(ce->src, &srcWidth, STPBuilder::ExprType::Bitvector);
     *width_out = ce->getWidth();
-    if (srcWidth==1) {
+    if (expr_type == STPBuilder::ExprType::Boolean) {
+      assert(srcWidth == 1);
       return vc_iteExpr(vc, src, bvOne(*width_out), bvZero(*width_out));
     } else {
-      return vc_bvConcatExpr(vc, bvZero(*width_out-srcWidth), src);
+      return vc_bvConcatExpr(vc, bvZero(*width_out - srcWidth), src);
     }
   }
 
   case Expr::SExt: {
     int srcWidth;
     CastExpr *ce = cast<CastExpr>(e);
-    ExprHandle src = construct(ce->src, &srcWidth);
+    ExprHandle src =
+        construct(ce->src, &srcWidth, STPBuilder::ExprType::Bitvector);
     *width_out = ce->getWidth();
-    if (srcWidth==1) {
+    if (expr_type == STPBuilder::ExprType::Boolean) {
+      assert(srcWidth == 1);
       return vc_iteExpr(vc, src, bvMinusOne(*width_out), bvZero(*width_out));
     } else {
       return vc_bvSignExtend(vc, src, *width_out);
@@ -619,84 +639,97 @@ ExprHandle STPBuilder::constructActual(ref<Expr> e, int *width_out) {
     // Arithmetic
 
   case Expr::Add: {
+    assert(expr_type != STPBuilder::ExprType::Boolean);
     AddExpr *ae = cast<AddExpr>(e);
-    ExprHandle left = construct(ae->left, width_out);
-    ExprHandle right = construct(ae->right, width_out);
-    assert(*width_out!=1 && "uncanonicalized add");
+    ExprHandle left =
+        construct(ae->left, width_out, STPBuilder::ExprType::Bitvector);
+    ExprHandle right =
+        construct(ae->right, width_out, STPBuilder::ExprType::Bitvector);
+    assert(*width_out != 1 && "uncanonicalized add");
     return vc_bvPlusExpr(vc, *width_out, left, right);
   }
 
   case Expr::Sub: {
+    assert(expr_type != STPBuilder::ExprType::Boolean);
     SubExpr *se = cast<SubExpr>(e);
-    ExprHandle left = construct(se->left, width_out);
-    ExprHandle right = construct(se->right, width_out);
-    assert(*width_out!=1 && "uncanonicalized sub");
+    ExprHandle left =
+        construct(se->left, width_out, STPBuilder::ExprType::Bitvector);
+    ExprHandle right =
+        construct(se->right, width_out, STPBuilder::ExprType::Bitvector);
+    assert(*width_out != 1 && "uncanonicalized sub");
     return vc_bvMinusExpr(vc, *width_out, left, right);
-  } 
+  }
 
   case Expr::Mul: {
+    assert(expr_type != STPBuilder::ExprType::Boolean);
     MulExpr *me = cast<MulExpr>(e);
-    ExprHandle right = construct(me->right, width_out);
-    assert(*width_out!=1 && "uncanonicalized mul");
+    ExprHandle right =
+        construct(me->right, width_out, STPBuilder::ExprType::Bitvector);
+    assert(*width_out != 1 && "uncanonicalized mul");
 
     if (ConstantExpr *CE = dyn_cast<ConstantExpr>(me->left))
       if (CE->getWidth() <= 64)
-        return constructMulByConstant(right, *width_out, 
-                                      CE->getZExtValue());
+        return constructMulByConstant(right, *width_out, CE->getZExtValue());
 
-    ExprHandle left = construct(me->left, width_out);
+    ExprHandle left =
+        construct(me->left, width_out, STPBuilder::ExprType::Bitvector);
     return vc_bvMultExpr(vc, *width_out, left, right);
   }
 
   case Expr::UDiv: {
+    assert(expr_type != STPBuilder::ExprType::Boolean);
     UDivExpr *de = cast<UDivExpr>(e);
-    ExprHandle left = construct(de->left, width_out);
-    assert(*width_out!=1 && "uncanonicalized udiv");
-    
+    ExprHandle left =
+        construct(de->left, width_out, STPBuilder::ExprType::Bitvector);
+    assert(*width_out != 1 && "uncanonicalized udiv");
+
     if (ConstantExpr *CE = dyn_cast<ConstantExpr>(de->right)) {
       if (CE->getWidth() <= 64) {
         uint64_t divisor = CE->getZExtValue();
-      
+
         if (bits64::isPowerOfTwo(divisor)) {
-          return bvRightShift(left,
-                              bits64::indexOfSingleBit(divisor));
+          return bvRightShift(left, bits64::indexOfSingleBit(divisor));
         } else if (optimizeDivides) {
-          if (*width_out == 32) //only works for 32-bit division
-            return constructUDivByConstant( left, *width_out, 
-                                            (uint32_t) divisor);
+          if (*width_out == 32) // only works for 32-bit division
+            return constructUDivByConstant(left, *width_out, (uint32_t)divisor);
         }
       }
-    } 
+    }
 
-    ExprHandle right = construct(de->right, width_out);
+    ExprHandle right =
+        construct(de->right, width_out, STPBuilder::ExprType::Bitvector);
     return vc_bvDivExpr(vc, *width_out, left, right);
   }
 
   case Expr::SDiv: {
+    assert(expr_type != STPBuilder::ExprType::Boolean);
     SDivExpr *de = cast<SDivExpr>(e);
-    ExprHandle left = construct(de->left, width_out);
-    assert(*width_out!=1 && "uncanonicalized sdiv");
+    ExprHandle left =
+        construct(de->left, width_out, STPBuilder::ExprType::Bitvector);
+    assert(*width_out != 1 && "uncanonicalized sdiv");
 
     if (ConstantExpr *CE = dyn_cast<ConstantExpr>(de->right))
       if (optimizeDivides) {
         llvm::APInt divisor = CE->getAPValue();
-        if (divisor != llvm::APInt(CE->getWidth(),1, false /*unsigned*/) &&
+        if (divisor != llvm::APInt(CE->getWidth(), 1, false /*unsigned*/) &&
             divisor != llvm::APInt(CE->getWidth(), -1, true /*signed*/))
-            if (*width_out == 32) //only works for 32-bit division
-               return constructSDivByConstant( left, *width_out,
-                                          CE->getZExtValue(32));
+          if (*width_out == 32) // only works for 32-bit division
+            return constructSDivByConstant(left, *width_out,
+                                           CE->getZExtValue(32));
       }
-    // XXX need to test for proper handling of sign, not sure I
-    // trust STP
-    ExprHandle right = construct(de->right, width_out);
+
+    ExprHandle right =
+        construct(de->right, width_out, STPBuilder::ExprType::Bitvector);
     return vc_sbvDivExpr(vc, *width_out, left, right);
   }
 
   case Expr::URem: {
+    assert(expr_type != STPBuilder::ExprType::Boolean);
     URemExpr *de = cast<URemExpr>(e);
-    ExprHandle left = construct(de->left, width_out);
-    assert(*width_out!=1 && "uncanonicalized urem");
-    
+    ExprHandle left =
+        construct(de->left, width_out, STPBuilder::ExprType::Bitvector);
+    assert(*width_out != 1 && "uncanonicalized urem");
+
     if (ConstantExpr *CE = dyn_cast<ConstantExpr>(de->right)) {
       if (CE->getWidth() <= 64) {
         uint64_t divisor = CE->getZExtValue();
@@ -708,48 +741,57 @@ ExprHandle STPBuilder::constructActual(ref<Expr> e, int *width_out) {
           if (bits == 0) {
             return bvZero(*width_out);
           } else {
-            return vc_bvConcatExpr(vc,
-                                   bvZero(*width_out - bits),
+            return vc_bvConcatExpr(vc, bvZero(*width_out - bits),
                                    bvExtract(left, bits - 1, 0));
           }
         }
 
         // Use fast division to compute modulo without explicit division for
-        // constant divisor.
-
+        // constant divisor
         if (optimizeDivides) {
-          if (*width_out == 32) { //only works for 32-bit division
-            ExprHandle quotient = constructUDivByConstant( left, *width_out, (uint32_t)divisor );
-            ExprHandle quot_times_divisor = constructMulByConstant( quotient, *width_out, divisor );
-            ExprHandle rem = vc_bvMinusExpr( vc, *width_out, left, quot_times_divisor );
+          if (*width_out == 32) { // only works for 32-bit division
+            ExprHandle quotient =
+                constructUDivByConstant(left, *width_out, (uint32_t)divisor);
+            ExprHandle quot_times_divisor =
+                constructMulByConstant(quotient, *width_out, divisor);
+            ExprHandle rem =
+                vc_bvMinusExpr(vc, *width_out, left, quot_times_divisor);
             return rem;
           }
         }
       }
     }
-    
-    ExprHandle right = construct(de->right, width_out);
+
+    ExprHandle right =
+        construct(de->right, width_out, STPBuilder::ExprType::Bitvector);
     return vc_bvModExpr(vc, *width_out, left, right);
   }
 
   case Expr::SRem: {
+    assert(expr_type != STPBuilder::ExprType::Boolean);
     SRemExpr *de = cast<SRemExpr>(e);
-    ExprHandle left = construct(de->left, width_out);
-    ExprHandle right = construct(de->right, width_out);
-    assert(*width_out!=1 && "uncanonicalized srem");
+    ExprHandle left =
+        construct(de->left, width_out, STPBuilder::ExprType::Bitvector);
+    ExprHandle right =
+        construct(de->right, width_out, STPBuilder::ExprType::Bitvector);
+    assert(*width_out != 1 && "uncanonicalized srem");
 
-#if 0 //not faster per first benchmark
+#if 0 // not faster per first benchmark
     if (optimizeDivides) {
       if (ConstantExpr *cre = de->right->asConstant()) {
-	uint64_t divisor = cre->asUInt64;
+        uint64_t divisor = cre->asUInt64;
 
-	//use fast division to compute modulo without explicit division for constant divisor
-      	if( *width_out == 32 ) { //only works for 32-bit division
-	  ExprHandle quotient = constructSDivByConstant( left, *width_out, divisor );
-	  ExprHandle quot_times_divisor = constructMulByConstant( quotient, *width_out, divisor );
-	  ExprHandle rem = vc_bvMinusExpr( vc, *width_out, left, quot_times_divisor );
-	  return rem;
-	}
+        // use fast division to compute modulo without explicit division for
+        // constant divisor
+        if (*width_out == 32) { // only works for 32-bit division
+          ExprHandle quotient =
+              constructSDivByConstant(left, *width_out, divisor);
+          ExprHandle quot_times_divisor =
+              constructMulByConstant(quotient, *width_out, divisor);
+          ExprHandle rem =
+              vc_bvMinusExpr(vc, *width_out, left, quot_times_divisor);
+          return rem;
+        }
       }
     }
 #endif
@@ -762,19 +804,21 @@ ExprHandle STPBuilder::constructActual(ref<Expr> e, int *width_out) {
 
   case Expr::Not: {
     NotExpr *ne = cast<NotExpr>(e);
-    ExprHandle expr = construct(ne->expr, width_out);
-    if (*width_out==1) {
+    ExprHandle expr = construct(ne->expr, width_out, expr_type);
+    if (expr_type == STPBuilder::ExprType::Boolean) {
+      assert(*width_out == 1);
       return vc_notExpr(vc, expr);
     } else {
       return vc_bvNotExpr(vc, expr);
     }
-  }    
+  }
 
   case Expr::And: {
     AndExpr *ae = cast<AndExpr>(e);
-    ExprHandle left = construct(ae->left, width_out);
-    ExprHandle right = construct(ae->right, width_out);
-    if (*width_out==1) {
+    ExprHandle left = construct(ae->left, width_out, expr_type);
+    ExprHandle right = construct(ae->right, width_out, expr_type);
+    if (expr_type == STPBuilder::ExprType::Boolean) {
+      assert(*width_out == 1);
       return vc_andExpr(vc, left, right);
     } else {
       return vc_bvAndExpr(vc, left, right);
@@ -783,9 +827,10 @@ ExprHandle STPBuilder::constructActual(ref<Expr> e, int *width_out) {
 
   case Expr::Or: {
     OrExpr *oe = cast<OrExpr>(e);
-    ExprHandle left = construct(oe->left, width_out);
-    ExprHandle right = construct(oe->right, width_out);
-    if (*width_out==1) {
+    ExprHandle left = construct(oe->left, width_out, expr_type);
+    ExprHandle right = construct(oe->right, width_out, expr_type);
+    if (expr_type == STPBuilder::ExprType::Boolean) {
+      assert(*width_out == 1);
       return vc_orExpr(vc, left, right);
     } else {
       return vc_bvOrExpr(vc, left, right);
@@ -794,114 +839,147 @@ ExprHandle STPBuilder::constructActual(ref<Expr> e, int *width_out) {
 
   case Expr::Xor: {
     XorExpr *xe = cast<XorExpr>(e);
-    ExprHandle left = construct(xe->left, width_out);
-    ExprHandle right = construct(xe->right, width_out);
-    
-    if (*width_out==1) {
+    ExprHandle left = construct(xe->left, width_out, expr_type);
+    ExprHandle right = construct(xe->right, width_out, expr_type);
+
+    if (expr_type == STPBuilder::ExprType::Boolean) {
+      assert(*width_out == 1);
       // XXX check for most efficient?
-      return vc_iteExpr(vc, left, 
-                        ExprHandle(vc_notExpr(vc, right)), right);
+      return vc_iteExpr(vc, left, ExprHandle(vc_notExpr(vc, right)), right);
     } else {
       return vc_bvXorExpr(vc, left, right);
     }
   }
 
   case Expr::Shl: {
+    assert(expr_type != STPBuilder::ExprType::Boolean);
     ShlExpr *se = cast<ShlExpr>(e);
-    ExprHandle left = construct(se->left, width_out);
-    assert(*width_out!=1 && "uncanonicalized shl");
+    ExprHandle left =
+        construct(se->left, width_out, STPBuilder::ExprType::Bitvector);
+    assert(*width_out != 1 && "uncanonicalized shl");
 
     if (ConstantExpr *CE = dyn_cast<ConstantExpr>(se->right)) {
-      return bvLeftShift(left, (unsigned) CE->getLimitedValue());
+      return bvLeftShift(left, (unsigned)CE->getLimitedValue());
     } else {
       int shiftWidth;
-      ExprHandle amount = construct(se->right, &shiftWidth);
-      return bvVarLeftShift( left, amount);
+      ExprHandle amount =
+          construct(se->right, &shiftWidth, STPBuilder::ExprType::Bitvector);
+      return bvVarLeftShift(left, amount);
     }
   }
 
   case Expr::LShr: {
+    assert(expr_type != STPBuilder::ExprType::Boolean);
     LShrExpr *lse = cast<LShrExpr>(e);
-    ExprHandle left = construct(lse->left, width_out);
-    assert(*width_out!=1 && "uncanonicalized lshr");
+    ExprHandle left =
+        construct(lse->left, width_out, STPBuilder::ExprType::Bitvector);
+    assert(*width_out != 1 && "uncanonicalized lshr");
 
     if (ConstantExpr *CE = dyn_cast<ConstantExpr>(lse->right)) {
-      return bvRightShift(left, (unsigned) CE->getLimitedValue());
+      return bvRightShift(left, (unsigned)CE->getLimitedValue());
     } else {
       int shiftWidth;
-      ExprHandle amount = construct(lse->right, &shiftWidth);
-      return bvVarRightShift( left, amount);
+      ExprHandle amount =
+          construct(lse->right, &shiftWidth, STPBuilder::ExprType::Bitvector);
+      return bvVarRightShift(left, amount);
     }
   }
 
   case Expr::AShr: {
+    assert(expr_type != STPBuilder::ExprType::Boolean);
     AShrExpr *ase = cast<AShrExpr>(e);
-    ExprHandle left = construct(ase->left, width_out);
-    assert(*width_out!=1 && "uncanonicalized ashr");
-    
+    ExprHandle left =
+        construct(ase->left, width_out, STPBuilder::ExprType::Bitvector);
+    assert(*width_out != 1 && "uncanonicalized ashr");
+
     if (ConstantExpr *CE = dyn_cast<ConstantExpr>(ase->right)) {
-      unsigned shift = (unsigned) CE->getLimitedValue();
-      ExprHandle signedBool = bvBoolExtract(left, *width_out-1);
+      unsigned shift = (unsigned)CE->getLimitedValue();
+      ExprHandle signedBool = bvBoolExtract(left, *width_out - 1);
       return constructAShrByConstant(left, shift, signedBool);
     } else {
       int shiftWidth;
-      ExprHandle amount = construct(ase->right, &shiftWidth);
-      return bvVarArithRightShift( left, amount);
+      ExprHandle amount =
+          construct(ase->right, &shiftWidth, STPBuilder::ExprType::Bitvector);
+      return bvVarArithRightShift(left, amount);
     }
   }
 
     // Comparison
 
   case Expr::Eq: {
+    assert(expr_type != STPBuilder::ExprType::Bitvector);
     EqExpr *ee = cast<EqExpr>(e);
-    ExprHandle left = construct(ee->left, width_out);
-    ExprHandle right = construct(ee->right, width_out);
-    if (*width_out==1) {
-      if (ConstantExpr *CE = dyn_cast<ConstantExpr>(ee->left)) {
-        if (CE->isTrue())
-          return right;
-        return vc_notExpr(vc, right);
-      } else {
-        return vc_iffExpr(vc, left, right);
-      }
-    } else {
-      *width_out = 1;
-      return vc_eqExpr(vc, left, right);
-    }
+    int width1, width2;
+    if ((ee->left->getKind() >= Expr::Kind::CmpKindFirst &&
+         ee->left->getKind() <= Expr::Kind::CmpKindLast) ||
+        (ee->right->getKind() >= Expr::Kind::CmpKindFirst &&
+         ee->right->getKind() <= Expr::Kind::CmpKindLast))
+      expr_type = STPBuilder::ExprType::Boolean;
+    else
+      expr_type = STPBuilder::ExprType::Bitvector;
+
+    ExprHandle left = construct(ee->left, &width1, expr_type);
+    ExprHandle right = construct(ee->right, &width2, expr_type);
+    assert(width1 == width2 &&
+           "Eq expression with children of different width");
+    *width_out = 1;
+    return vc_eqExpr(vc, left, right);
   }
 
   case Expr::Ult: {
+    assert(expr_type != STPBuilder::ExprType::Bitvector);
     UltExpr *ue = cast<UltExpr>(e);
-    ExprHandle left = construct(ue->left, width_out);
-    ExprHandle right = construct(ue->right, width_out);
-    assert(*width_out!=1 && "uncanonicalized ult");
+    int width1, width2;
+    ExprHandle left =
+        construct(ue->left, &width1, STPBuilder::ExprType::Bitvector);
+    ExprHandle right =
+        construct(ue->right, &width2, STPBuilder::ExprType::Bitvector);
+    assert(width1 == width2 &&
+           "Ult expression with children of different width");
+    assert(width1 != 1 && "uncanonicalized ult");
     *width_out = 1;
     return vc_bvLtExpr(vc, left, right);
   }
 
   case Expr::Ule: {
+    assert(expr_type != STPBuilder::ExprType::Bitvector);
     UleExpr *ue = cast<UleExpr>(e);
-    ExprHandle left = construct(ue->left, width_out);
-    ExprHandle right = construct(ue->right, width_out);
-    assert(*width_out!=1 && "uncanonicalized ule");
+    int width1, width2;
+    ExprHandle left =
+        construct(ue->left, &width1, STPBuilder::ExprType::Bitvector);
+    ExprHandle right =
+        construct(ue->right, &width2, STPBuilder::ExprType::Bitvector);
+    assert(width1 == width2 &&
+           "Ule expression with children of different width");
+    assert(width1 != 1 && "uncanonicalized Ule");
     *width_out = 1;
     return vc_bvLeExpr(vc, left, right);
   }
 
   case Expr::Slt: {
+    assert(expr_type != STPBuilder::ExprType::Bitvector);
     SltExpr *se = cast<SltExpr>(e);
-    ExprHandle left = construct(se->left, width_out);
-    ExprHandle right = construct(se->right, width_out);
-    assert(*width_out!=1 && "uncanonicalized slt");
+    int width1, width2;
+    ExprHandle left =
+        construct(se->left, &width1, STPBuilder::ExprType::Bitvector);
+    ExprHandle right =
+        construct(se->right, &width2, STPBuilder::ExprType::Bitvector);
+    assert(width1 == width2 &&
+           "Slt expression with children of different width");
+    assert(width1 != 1 && "uncanonicalized Slt");
     *width_out = 1;
     return vc_sbvLtExpr(vc, left, right);
   }
 
   case Expr::Sle: {
+    assert(expr_type != STPBuilder::ExprType::Bitvector);
     SleExpr *se = cast<SleExpr>(e);
-    ExprHandle left = construct(se->left, width_out);
-    ExprHandle right = construct(se->right, width_out);
-    assert(*width_out!=1 && "uncanonicalized sle");
+    int width1, width2;
+    ExprHandle left =
+        construct(se->left, &width1, STPBuilder::ExprType::Bitvector);
+    ExprHandle right =
+        construct(se->right, &width2, STPBuilder::ExprType::Bitvector);
+    assert(width1 != 1 && "uncanonicalized Sle");
     *width_out = 1;
     return vc_sbvLeExpr(vc, left, right);
   }

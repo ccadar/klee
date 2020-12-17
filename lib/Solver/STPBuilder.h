@@ -73,7 +73,12 @@ class STPBuilder {
 
   STPArrayExprHash _arr_hash;
 
-private:  
+private:
+  enum class ExprType {
+      Boolean,
+      Bitvector,
+      Unknown
+  };
 
   ExprHandle bvOne(unsigned width);
   ExprHandle bvZero(unsigned width);
@@ -105,8 +110,10 @@ private:
   ::VCExpr getInitialArray(const Array *os);
   ::VCExpr getArrayForUpdate(const Array *root, const UpdateNode *un);
 
-  ExprHandle constructActual(ref<Expr> e, int *width_out);
-  ExprHandle construct(ref<Expr> e, int *width_out);
+  /* Construct expression e, and store the width in *width_out.
+     If is_boolean is true, e has boolean type, otherwise it has bitvector type */
+  ExprHandle construct(ref<Expr> e, int *width_out, ExprType is_boolean);
+  ExprHandle constructActual(ref<Expr> e, int *width_out, ExprType is_boolean);
   
   ::VCExpr buildVar(const char *name, unsigned width);
   ::VCExpr buildArray(const char *name, unsigned indexWidth, unsigned valueWidth);
@@ -121,8 +128,11 @@ public:
 
   /* Construct boolean expression e */
   ExprHandle constructBoolean(ref<Expr> e) {
-    ExprHandle res = construct(e, 0);
+    llvm::errs() << "\ne: " << e << "\n";
+    ExprHandle res = construct(e, 0, STPBuilder::ExprType::Boolean);
+    vc_printExpr(vc, res);
     constructed.clear();
+    llvm::errs() << "...constructed successfully\n";
     return res;
   }
 };
