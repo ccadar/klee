@@ -137,7 +137,7 @@ char *STPSolverImpl::getConstraintLog(const Query &query) {
   vc_push(vc);
 
   for (const auto &constraint : query.constraints)
-    vc_assertFormula(vc, builder->construct(constraint));
+    vc_assertFormula(vc, builder->constructBoolean(constraint));
   assert(query.expr == ConstantExpr::alloc(0, Expr::Bool) &&
          "Unexpected expression in query!");
 
@@ -324,12 +324,12 @@ bool STPSolverImpl::computeInitialValues(
   vc_push(vc);
 
   for (const auto &constraint : query.constraints)
-    vc_assertFormula(vc, builder->construct(constraint));
+    vc_assertFormula(vc, builder->constructBoolean(constraint));
 
   ++stats::queries;
   ++stats::queryCounterexamples;
 
-  ExprHandle stp_e = builder->construct(query.expr);
+  ExprHandle stp_e = builder->constructBoolean(query.expr);
 
   if (DebugDumpSTPQueries) {
     char *buf;

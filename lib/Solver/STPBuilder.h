@@ -119,7 +119,8 @@ public:
   ExprHandle getFalse();
   ExprHandle getInitialRead(const Array *os, unsigned index);
 
-  ExprHandle construct(ref<Expr> e) { 
+  /* Construct boolean expression e */
+  ExprHandle constructBoolean(ref<Expr> e) {
     ExprHandle res = construct(e, 0);
     constructed.clear();
     return res;
