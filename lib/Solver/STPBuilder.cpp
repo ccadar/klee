@@ -907,9 +907,8 @@ ExprHandle STPBuilder::constructActual(ref<Expr> e, int *width_out,
     // Comparison
 
   case Expr::Eq: {
-    assert(expr_type != STPBuilder::ExprType::Bitvector);
+    //assert(expr_type != STPBuilder::ExprType::Bitvector);
     EqExpr *ee = cast<EqExpr>(e);
-    int width1, width2;
     if ((ee->left->getKind() >= Expr::Kind::CmpKindFirst &&
          ee->left->getKind() <= Expr::Kind::CmpKindLast) ||
         (ee->right->getKind() >= Expr::Kind::CmpKindFirst &&
@@ -918,12 +917,24 @@ ExprHandle STPBuilder::constructActual(ref<Expr> e, int *width_out,
     else
       expr_type = STPBuilder::ExprType::Bitvector;
 
+    int width1, width2;
     ExprHandle left = construct(ee->left, &width1, expr_type);
     ExprHandle right = construct(ee->right, &width2, expr_type);
     assert(width1 == width2 &&
            "Eq expression with children of different width");
     *width_out = 1;
-    return vc_eqExpr(vc, left, right);
+
+    if (expr_type == STPBuilder::ExprType::Boolean) {
+      if (ConstantExpr *CE = dyn_cast<ConstantExpr>(ee->left)) {
+        if (CE->isTrue())
+          return right;
+        return vc_notExpr(vc, right);
+      } else {
+        return vc_iffExpr(vc, left, right);
+      }
+    } else {
+      return vc_eqExpr(vc, left, right);
+    }
   }
 
   case Expr::Ult: {
