@@ -128,11 +128,11 @@ public:
 
   /* Construct boolean expression e */
   ExprHandle constructBoolean(ref<Expr> e) {
-    llvm::errs() << "\ne: " << e << "\n";
+    //llvm::errs() << "\ne: " << e << "\n";
     ExprHandle res = construct(e, 0, STPBuilder::ExprType::Boolean);
-    vc_printExpr(vc, res);
+    //vc_printExpr(vc, res);
     constructed.clear();
-    llvm::errs() << "...constructed successfully\n";
+    //llvm::errs() << "...constructed successfully\n";
     return res;
   }
 };

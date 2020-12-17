@@ -614,12 +614,7 @@ ExprHandle STPBuilder::constructActual(ref<Expr> e, int *width_out,
     ExprHandle src =
         construct(ce->src, &srcWidth, STPBuilder::ExprType::Bitvector);
     *width_out = ce->getWidth();
-    if (expr_type == STPBuilder::ExprType::Boolean) {
-      assert(srcWidth == 1);
-      return vc_iteExpr(vc, src, bvOne(*width_out), bvZero(*width_out));
-    } else {
-      return vc_bvConcatExpr(vc, bvZero(*width_out - srcWidth), src);
-    }
+    return vc_bvConcatExpr(vc, bvZero(*width_out - srcWidth), src);
   }
 
   case Expr::SExt: {
@@ -628,12 +623,7 @@ ExprHandle STPBuilder::constructActual(ref<Expr> e, int *width_out,
     ExprHandle src =
         construct(ce->src, &srcWidth, STPBuilder::ExprType::Bitvector);
     *width_out = ce->getWidth();
-    if (expr_type == STPBuilder::ExprType::Boolean) {
-      assert(srcWidth == 1);
-      return vc_iteExpr(vc, src, bvMinusOne(*width_out), bvZero(*width_out));
-    } else {
-      return vc_bvSignExtend(vc, src, *width_out);
-    }
+    return vc_bvSignExtend(vc, src, *width_out);
   }
 
     // Arithmetic
@@ -909,32 +899,37 @@ ExprHandle STPBuilder::constructActual(ref<Expr> e, int *width_out,
   case Expr::Eq: {
     //assert(expr_type != STPBuilder::ExprType::Bitvector);
     EqExpr *ee = cast<EqExpr>(e);
+
+    STPBuilder::ExprType child_type;
     if ((ee->left->getKind() >= Expr::Kind::CmpKindFirst &&
          ee->left->getKind() <= Expr::Kind::CmpKindLast) ||
         (ee->right->getKind() >= Expr::Kind::CmpKindFirst &&
          ee->right->getKind() <= Expr::Kind::CmpKindLast))
-      expr_type = STPBuilder::ExprType::Boolean;
+      child_type = STPBuilder::ExprType::Boolean;
     else
-      expr_type = STPBuilder::ExprType::Bitvector;
+      child_type = STPBuilder::ExprType::Bitvector;
 
     int width1, width2;
-    ExprHandle left = construct(ee->left, &width1, expr_type);
-    ExprHandle right = construct(ee->right, &width2, expr_type);
+    ExprHandle left = construct(ee->left, &width1, child_type);
+    ExprHandle right = construct(ee->right, &width2, child_type);
     assert(width1 == width2 &&
            "Eq expression with children of different width");
     *width_out = 1;
 
     if (expr_type == STPBuilder::ExprType::Boolean) {
-      if (ConstantExpr *CE = dyn_cast<ConstantExpr>(ee->left)) {
-        if (CE->isTrue())
-          return right;
-        return vc_notExpr(vc, right);
+      if (child_type == STPBuilder::ExprType::Boolean) {
+        if (ConstantExpr *CE = dyn_cast<ConstantExpr>(ee->left)) {
+          if (CE->isTrue())
+            return right;
+          return vc_notExpr(vc, right);
+        } else {
+          return vc_iffExpr(vc, left, right);
+        }
       } else {
-        return vc_iffExpr(vc, left, right);
+        return vc_eqExpr(vc, left, right);
       }
-    } else {
-      return vc_eqExpr(vc, left, right);
-    }
+    } else
+      return vc_boolToBVExpr(vc, vc_eqExpr(vc, left, right));
   }
 
   case Expr::Ult: {
