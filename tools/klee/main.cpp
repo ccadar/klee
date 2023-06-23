@@ -1506,9 +1506,10 @@ int main(int argc, char **argv, char **envp) {
     }
 
     if (!seeds.empty()) {
-      klee_message("KLEE: using %lu seeds\n", seeds.size());
+      klee_message("Using %lu seed(s)\n", seeds.size());
       interpreter->useSeeds(&seeds);
     }
+
     if (RunInDir != "") {
       int res = chdir(RunInDir.c_str());
       if (res < 0) {
