@@ -393,6 +393,17 @@ ref<Expr> ObjectState::read8(ref<Expr> offset) const {
         size, allocInfo.c_str());
   }
 
+  if (size > 4096) {
+    std::string allocInfo;
+    object->getAllocInfo(allocInfo);
+    klee_warning_once(
+        nullptr,
+        "Symbolic memory access will send the following array of %d bytes to "
+        "the constraint solver -- large symbolic arrays may cause significant "
+        "performance issues: %s",
+        size, allocInfo.c_str());
+  }
+
   return ReadExpr::create(getUpdates(), ZExtExpr::create(offset, Expr::Int32));
 }
 

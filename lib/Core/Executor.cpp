@@ -4602,6 +4602,11 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
                                    const std::string &name) {
   // Create a new object state for the memory object (instead of a copy).
   if (!replayKTest) {
+    // Check if the size is greater than UINT32_MAX
+    if (mo->size > UINT32_MAX)
+      klee_error("Symbolic objects larger than %u bytes not allowed (%zu bytes).",
+                 UINT32_MAX, mo->size);
+
     // Find a unique name for this array.  First try the original name,
     // or if that fails try adding a unique identifier.
     unsigned id = 0;
@@ -4644,7 +4649,7 @@ void Executor::executeMakeSymbolic(ExecutionState &state,
             /* Either sizes are equal or seed extension/trucation is allowed */
             std::vector<unsigned char> &values = si.assignment.bindings[array];
             values.insert(values.begin(), obj->bytes,
-                          obj->bytes + std::min(obj->numBytes, mo->size));
+                          obj->bytes + std::min(obj->numBytes, (uint32_t) mo->size));
               for (unsigned i = obj->numBytes; i < mo->size; ++i)
                 values.push_back('\0');
           }

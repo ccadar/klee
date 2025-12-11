@@ -303,7 +303,7 @@ std::size_t AddressSpace::copyOutConcretes() {
     auto &mo = object.first;
     auto &os = object.second;
     if (!mo->isUserSpecified && !os->readOnly && os->size != 0) {
-      auto size = std::max(os->size, mo->alignment);
+      auto size = std::max(os->size, (uint32_t) mo->alignment);
       numPages +=
           (size + MemoryManager::pageSize - 1) / MemoryManager::pageSize;
       copyOutConcrete(mo, os.get());

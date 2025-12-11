@@ -50,8 +50,8 @@ public:
   uint64_t address;
 
   /// size in bytes
-  unsigned size;
-  unsigned alignment;
+  size_t size;
+  size_t alignment;
   mutable std::string name;
 
   bool isLocal;
@@ -84,7 +84,7 @@ public:
       allocSite(0) {
   }
 
-  MemoryObject(uint64_t _address, unsigned _size, unsigned _alignment,
+  MemoryObject(uint64_t _address, size_t _size, size_t _alignment,
                bool _isLocal, bool _isGlobal, bool _isFixed,
                const llvm::Value *_allocSite,
                MemoryManager *_parent)
@@ -122,7 +122,7 @@ public:
   ref<Expr> getBoundsCheckPointer(ref<Expr> pointer) const {
     return getBoundsCheckOffset(getOffsetExpr(pointer));
   }
-  ref<Expr> getBoundsCheckPointer(ref<Expr> pointer, unsigned bytes) const {
+  ref<Expr> getBoundsCheckPointer(ref<Expr> pointer, size_t bytes) const {
     return getBoundsCheckOffset(getOffsetExpr(pointer), bytes);
   }
 
@@ -134,7 +134,7 @@ public:
       return UltExpr::create(offset, getSizeExpr());
     }
   }
-  ref<Expr> getBoundsCheckOffset(ref<Expr> offset, unsigned bytes) const {
+  ref<Expr> getBoundsCheckOffset(ref<Expr> offset, size_t bytes) const {
     if (bytes<=size) {
       return UltExpr::create(offset, 
                              ConstantExpr::alloc(size - bytes + 1, 
@@ -194,7 +194,7 @@ private:
   mutable UpdateList updates;
 
 public:
-  unsigned size;
+  uint32_t size;
 
   bool readOnly;
 

@@ -272,8 +272,9 @@ MemoryObject *MemoryManager::allocate(uint64_t size, bool isLocal,
                                       const llvm::Value *allocSite,
                                       size_t alignment) {
   if (size > 10 * 1024 * 1024)
-    klee_warning_once(0, "Large alloc: %" PRIu64
-                         " bytes.  KLEE may run out of memory.",
+    klee_warning_once(0,
+                      "Large memory allocation (%" PRIu64
+                      " bytes). KLEE may run out of memory.",
                       size);
 
   // Return NULL if size is zero, this is equal to error during allocation
@@ -312,8 +313,10 @@ MemoryObject *MemoryManager::allocate(uint64_t size, bool isLocal,
     address = reinterpret_cast<std::uint64_t>(allocAddress);
   } else {
     // Use malloc for the standard case
-    if (alignment <= 8)
+    if (alignment <= 8) {
+      llvm::errs() << "Allocating size " << size << "\n";
       address = (uint64_t)malloc(size);
+    }
     else {
       int res = posix_memalign((void **)&address, alignment, size);
       if (res < 0) {
